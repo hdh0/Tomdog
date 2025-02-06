@@ -15,6 +15,8 @@ import java.util.Locale;
 
 public class HttpServletResponseImpl implements HttpServletResponse {
 
+    int status = 200;
+    String contentType;
     private final HttpExchangeResponse exchangeResponse;
 
     public HttpServletResponseImpl(HttpExchangeResponse exchangeResponse) {
@@ -39,6 +41,7 @@ public class HttpServletResponseImpl implements HttpServletResponse {
     @Override
     public void setContentType(String s) {
         setHeader("Content-Type", s);
+        this.contentType = s;
     }
 
     /**
@@ -73,13 +76,16 @@ public class HttpServletResponseImpl implements HttpServletResponse {
     }
 
     @Override
-    public void sendError(int i, String s) throws IOException {
-
+    public void sendError(int sc, String msg) throws IOException {
+        this.status = sc;
+        PrintWriter pw = getWriter();
+        pw.write(String.format("<h1>%d %s</h1>", sc, msg));
+        pw.close();
     }
 
     @Override
-    public void sendError(int i) throws IOException {
-
+    public void sendError(int sc) throws IOException {
+        sendError(sc, "Error");
     }
 
     @Override
@@ -144,7 +150,7 @@ public class HttpServletResponseImpl implements HttpServletResponse {
 
     @Override
     public String getContentType() {
-        return null;
+        return this.contentType;
     }
 
     @Override

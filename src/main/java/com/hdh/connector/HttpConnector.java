@@ -3,6 +3,8 @@ package com.hdh.connector;
 import com.hdh.engine.HttpServletRequestImpl;
 import com.hdh.engine.HttpServletResponseImpl;
 import com.hdh.engine.ServletContextImpl;
+import com.hdh.engine.filter.HelloFilter;
+import com.hdh.engine.filter.LogFilter;
 import com.hdh.engine.servlet.IndexServlet;
 import com.hdh.engine.servlet.HelloServlet;
 import com.sun.net.httpserver.HttpExchange;
@@ -26,10 +28,12 @@ public class HttpConnector implements HttpHandler, AutoCloseable{
     private final int port;
 
     public HttpConnector(String host, int port) throws IOException {
-        // 创建Servlet容器
+        // 1. 创建Servlet容器
         this.servletContext = new ServletContextImpl();
-        // 初始化Servlet
-        this.servletContext.initialize(List.of(HelloServlet.class, IndexServlet.class));
+        // 2. 初始化Servlet
+        this.servletContext.initServlets(List.of(HelloServlet.class, IndexServlet.class));
+        // 3. 初始化Filter
+        this.servletContext.initFilters(List.of(HelloFilter.class, LogFilter.class));
 
         this.host = host;
         this.port = port;
@@ -41,11 +45,10 @@ public class HttpConnector implements HttpHandler, AutoCloseable{
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
-        logger.info("{}: {}", exchange.getRequestMethod(), exchange.getRequestURI());
         var adapter = new HttpExchangeAdapter(exchange);
         HttpServletRequest request = new HttpServletRequestImpl(adapter);
         HttpServletResponse response = new HttpServletResponseImpl(adapter);
-        // process(request, response);
+        // 使用Servlet容器处理请求
         try {
             this.servletContext.process(request, response);
         } catch (Exception e) {
