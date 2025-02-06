@@ -1,0 +1,60 @@
+package com.hdh.connector;
+
+import com.hdh.engine.HttpServletRequestImpl;
+import com.hdh.engine.HttpServletResponseImpl;
+import com.hdh.engine.ServletContextImpl;
+import com.hdh.engine.servlet.IndexServlet;
+import com.hdh.engine.servlet.HelloServlet;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.List;
+
+public class HttpConnector implements HttpHandler, AutoCloseable{
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+
+    private final HttpServer httpServer;
+    private final ServletContextImpl servletContext;
+    private final String host;
+    private final int port;
+
+    public HttpConnector(String host, int port) throws IOException {
+        // 创建Servlet容器
+        this.servletContext = new ServletContextImpl();
+        // 初始化Servlet
+        this.servletContext.initialize(List.of(HelloServlet.class, IndexServlet.class));
+
+        this.host = host;
+        this.port = port;
+        this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
+        this.httpServer.createContext("/", this);
+        this.httpServer.start();
+        logger.info("Tomdog Server started at {}:{}", host, port);
+    }
+
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+        logger.info("{}: {}", exchange.getRequestMethod(), exchange.getRequestURI());
+        var adapter = new HttpExchangeAdapter(exchange);
+        HttpServletRequest request = new HttpServletRequestImpl(adapter);
+        HttpServletResponse response = new HttpServletResponseImpl(adapter);
+        // process(request, response);
+        try {
+            this.servletContext.process(request, response);
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void close() throws Exception {
+        httpServer.stop(3);
+    }
+}
