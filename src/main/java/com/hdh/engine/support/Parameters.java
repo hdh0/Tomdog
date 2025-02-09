@@ -31,6 +31,10 @@ public class Parameters {
         return values[0];
     }
 
+    /**
+     * 获取所有参数名
+     * @return 参数名枚举
+     */
     public Enumeration<String> getParameterNames() {
         return Collections.enumeration(getParameterMap().keySet());
     }
@@ -39,13 +43,22 @@ public class Parameters {
         return getParameterMap().get(name);
     }
 
+    /**
+     * 获取所有参数
+     * @return 参数Map
+     */
     public Map<String, String[]> getParameterMap() {
         if (this.parameters == null) {
+            // lazy init: 第一次调用时解析参数
             this.parameters = initParameters();
         }
         return this.parameters;
     }
 
+    /**
+     * 从query和post body中解析参数
+     * @return 参数Map
+     */
     Map<String, String[]> initParameters() {
         Map<String, List<String>> params = new HashMap<>();
         String query = this.exchangeRequest.getRequestURI().getRawQuery();
@@ -54,6 +67,7 @@ public class Parameters {
         }
         if ("POST".equals(this.exchangeRequest.getRequestMethod())) {
             String value = HttpUtils.getHeader(this.exchangeRequest.getRequestHeaders(), "Content-Type");
+            // 当Content-Type为表单提交时，解析body中的参数
             if (value != null && value.startsWith("application/x-www-form-urlencoded")) {
                 String requestBody;
                 try {
@@ -62,7 +76,7 @@ public class Parameters {
                     throw new UncheckedIOException(e);
                 }
                 Map<String, List<String>> postParams = HttpUtils.parseQuery(requestBody, charset);
-                // merge:
+                // 合并query和post参数
                 for (String key : postParams.keySet()) {
                     List<String> postValues = postParams.get(key);
                     List<String> queryValues = params.get(key);
@@ -77,7 +91,7 @@ public class Parameters {
         if (params.isEmpty()) {
             return Map.of();
         }
-        // convert:
+        // List<String> -> String[]
         Map<String, String[]> paramsMap = new HashMap<>();
         for (String key : params.keySet()) {
             List<String> values = params.get(key);

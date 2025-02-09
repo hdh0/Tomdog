@@ -23,6 +23,9 @@ import java.util.*;
 public class ServletContextImpl implements ServletContext {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
+
+    final SessionManager sessionManager = new SessionManager(this, 600); // 会话管理器 10分钟失效
+
     private Map<String, ServletRegistrationImpl> servletRegistrations = new HashMap<>();
     private Map<String, FilterRegistrationImpl> filterRegistrations = new HashMap<>();
 
@@ -479,7 +482,7 @@ public class ServletContextImpl implements ServletContext {
 
     @Override
     public int getSessionTimeout() {
-        return 0;
+        return this.sessionManager.inactiveInterval;
     }
 
     @Override

@@ -3,10 +3,10 @@ package com.hdh.connector;
 import com.hdh.engine.HttpServletRequestImpl;
 import com.hdh.engine.HttpServletResponseImpl;
 import com.hdh.engine.ServletContextImpl;
-import com.hdh.engine.filter.HelloFilter;
 import com.hdh.engine.filter.LogFilter;
 import com.hdh.engine.servlet.IndexServlet;
-import com.hdh.engine.servlet.HelloServlet;
+import com.hdh.engine.servlet.LoginServlet;
+import com.hdh.engine.servlet.LogoutServlet;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -31,9 +31,9 @@ public class HttpConnector implements HttpHandler, AutoCloseable{
         // 1. 创建Servlet容器
         this.servletContext = new ServletContextImpl();
         // 2. 初始化Servlet
-        this.servletContext.initServlets(List.of(HelloServlet.class, IndexServlet.class));
+        this.servletContext.initServlets(List.of(IndexServlet.class, LoginServlet.class, LogoutServlet.class));
         // 3. 初始化Filter
-        this.servletContext.initFilters(List.of(HelloFilter.class, LogFilter.class));
+        this.servletContext.initFilters(List.of(LogFilter.class));
 
         this.host = host;
         this.port = port;
@@ -45,9 +45,9 @@ public class HttpConnector implements HttpHandler, AutoCloseable{
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
-        var adapter = new HttpExchangeAdapter(exchange);
-        HttpServletRequest request = new HttpServletRequestImpl(adapter);
+        var adapter = new HttpExchangeAdapter(exchange); // 多态写法,使用var可以转成2个接口
         HttpServletResponse response = new HttpServletResponseImpl(adapter);
+        HttpServletRequest request = new HttpServletRequestImpl(this.servletContext, adapter, response);
         // 使用Servlet容器处理请求
         try {
             this.servletContext.process(request, response);
