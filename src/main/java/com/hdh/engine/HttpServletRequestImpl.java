@@ -1,6 +1,7 @@
 package com.hdh.engine;
 
 import com.hdh.connector.HttpExchangeRequest;
+import com.hdh.engine.support.Attributes;
 import com.hdh.engine.support.HttpHeaders;
 import com.hdh.engine.support.Parameters;
 import com.hdh.engine.utils.HttpUtils;
@@ -8,6 +9,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 
 import java.io.*;
+import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
@@ -21,8 +23,16 @@ public class HttpServletRequestImpl implements HttpServletRequest {
     final ServletContextImpl servletContext;
     final HttpExchangeRequest exchangeRequest;
     final HttpServletResponse response;
+
+    final String method; // 请求方法
     final HttpHeaders headers; // 请求头
     final Parameters parameters; // 请求参数
+
+    String characterEncoding = "UTF-8"; // 字符编码
+    int contentLength = 0; // 请求体长度
+
+    String requestId; // 请求ID
+    Attributes attributes = new Attributes(); // 请求属性
 
     Boolean inputCalled = null; // 是否调用过getInputStream()方法
 
@@ -31,8 +41,14 @@ public class HttpServletRequestImpl implements HttpServletRequest {
         this.exchangeRequest = exchangeRequest;
         this.servletContext = servletContext;
         this.response = response;
+
+        this.method = exchangeRequest.getRequestMethod();
         this.headers = new HttpHeaders(exchangeRequest.getRequestHeaders());
-        this.parameters = new Parameters(exchangeRequest, "UTF-8");
+        this.parameters = new Parameters(exchangeRequest, this.characterEncoding);
+
+        if (List.of("GET", "POST", "PUT", "DELETE").contains(this.method)) {
+            this.contentLength = this.getIntHeader("Content-Length");
+        }
     }
 
     /**
@@ -127,34 +143,40 @@ public class HttpServletRequestImpl implements HttpServletRequest {
         return null;
     }
 
+    /**
+     * 获取实际路径
+     */
     @Override
     public String getPathTranslated() {
-        return null;
+        return this.servletContext.getRealPath(this.getRequestURI());
     }
 
     @Override
     public String getContextPath() {
-        return null;
+        return "";
     }
 
+    /**
+     * 获取查询字符串
+     */
     @Override
     public String getQueryString() {
-        return null;
+        return this.exchangeRequest.getRequestURI().getRawQuery();
     }
 
     @Override
     public String getRemoteUser() {
-        return null;
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
     public boolean isUserInRole(String s) {
-        return false;
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
     public Principal getUserPrincipal() {
-        return null;
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
@@ -170,16 +192,30 @@ public class HttpServletRequestImpl implements HttpServletRequest {
         return this.exchangeRequest.getRequestURI().getPath();
     }
 
+    /**
+     * 获取完整请求URL
+     */
     @Override
     public StringBuffer getRequestURL() {
-        return null;
+        StringBuffer url = new StringBuffer();
+        url.append(this.getScheme())
+                .append("://")
+                .append(this.getServerName())
+                .append(":")
+                .append(this.getServerPort())
+                .append(this.getRequestURI());
+        return url;
     }
 
     @Override
     public String getServletPath() {
-        return null;
+        return this.getRequestURI();
     }
 
+    /**
+     * 获取会话
+     * @param create 是否创建
+     */
     @Override
     public HttpSession getSession(boolean create) {
         // 从Cookie中获取SessionId
@@ -210,7 +246,7 @@ public class HttpServletRequestImpl implements HttpServletRequest {
 
     @Override
     public HttpSession getSession() {
-        return getSession(true);
+        return this.getSession(true);
     }
 
     @Override
@@ -235,67 +271,91 @@ public class HttpServletRequestImpl implements HttpServletRequest {
 
     @Override
     public boolean authenticate(HttpServletResponse httpServletResponse) throws IOException, ServletException {
-        return false;
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
     public void login(String s, String s1) throws ServletException {
-
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
     public void logout() throws ServletException {
-
+        throw new UnsupportedOperationException("不支持认证");
     }
 
     @Override
     public Collection<Part> getParts() throws IOException, ServletException {
-        return null;
+        throw new UnsupportedOperationException("不支持获取分块数据");
     }
 
     @Override
     public Part getPart(String s) throws IOException, ServletException {
-        return null;
+        throw new UnsupportedOperationException("不支持获取分块数据");
     }
 
     @Override
     public <T extends HttpUpgradeHandler> T upgrade(Class<T> aClass) throws IOException, ServletException {
-        return null;
+        throw new UnsupportedOperationException("不支持升级协议(websocket)");
     }
 
+    /**
+     * 获取请求属性
+     * @param name 属性名
+     * @return 属性值
+     */
     @Override
-    public Object getAttribute(String s) {
-        return null;
+    public Object getAttribute(String name) {
+        return this.attributes.getAttribute(name);
     }
 
+    /**
+     * 获取请求属性名称
+     * @return 属性名称枚举
+     */
     @Override
     public Enumeration<String> getAttributeNames() {
-        return null;
+        return this.attributes.getAttributeNames();
     }
 
+    /**
+     * 获取字符编码
+     */
     @Override
     public String getCharacterEncoding() {
-        return null;
+        return this.characterEncoding;
     }
 
+    /**
+     * 设置字符编码
+     */
     @Override
     public void setCharacterEncoding(String s) throws UnsupportedEncodingException {
-
+        this.characterEncoding = s;
     }
 
+    /**
+     * 获取ContentLength
+     */
     @Override
     public int getContentLength() {
-        return 0;
+        return this.contentLength;
     }
 
+    /**
+     * 获取ContentLength
+     */
     @Override
     public long getContentLengthLong() {
-        return 0;
+        return this.contentLength;
     }
 
+    /**
+     * 获取ContentType
+     */
     @Override
     public String getContentType() {
-        return null;
+        return this.getHeader("Content-Type");
     }
 
     /**
@@ -339,24 +399,37 @@ public class HttpServletRequestImpl implements HttpServletRequest {
         return this.parameters.getParameterMap();
     }
 
+    /**
+     * 获取协议
+     */
     @Override
     public String getProtocol() {
-        return null;
+        return "HTTP/1.1";
     }
 
+    /**
+     * 获取协议
+     */
     @Override
     public String getScheme() {
-        return null;
+        return "http";
     }
 
+    /**
+     * 获取服务器名称
+     */
     @Override
     public String getServerName() {
-        return null;
+        return "localhost";
     }
 
+    /**
+     * 获取服务器端口
+     */
     @Override
     public int getServerPort() {
-        return 0;
+        InetSocketAddress address = this.exchangeRequest.getLocalAddress();
+        return address.getPort();
     }
 
     /**
@@ -373,34 +446,63 @@ public class HttpServletRequestImpl implements HttpServletRequest {
         throw new IllegalStateException("getReader()方法只能调用一次");
     }
 
+    /**
+     * 获取远程地址
+     */
     @Override
     public String getRemoteAddr() {
-        return null;
+        InetSocketAddress address = this.exchangeRequest.getRemoteAddress();
+        return address.getHostString();
     }
 
+    /**
+     * 获取远程主机
+     */
     @Override
     public String getRemoteHost() {
-        return null;
+        return this.getRemoteAddr();
     }
 
+    /**
+     * 设置属性
+     * @param name 属性名
+     * @param value 属性值
+     */
     @Override
-    public void setAttribute(String s, Object o) {
-
+    public void setAttribute(String name, Object value) {
+        if (value == null) {
+            removeAttribute(name);
+        } else {
+            Object oldValue = this.attributes.setAttribute(name, value);
+            if (oldValue == null) {
+                this.servletContext.invokeServletRequestAttributeAdded(this, name, value);
+            } else {
+                this.servletContext.invokeServletRequestAttributeReplaced(this, name, value);
+            }
+        }
     }
 
+    /**
+     * 移除属性
+     * @param name 属性名
+     */
     @Override
-    public void removeAttribute(String s) {
-
+    public void removeAttribute(String name) {
+        Object oldValue = this.attributes.removeAttribute(name);
+        this.servletContext.invokeServletRequestAttributeRemoved(this, name, oldValue);
     }
 
+    /**
+     * 获取区域
+     */
     @Override
     public Locale getLocale() {
-        return null;
+        return Locale.CHINA;
     }
 
     @Override
     public Enumeration<Locale> getLocales() {
-        return null;
+        return Collections.enumeration(List.of(Locale.CHINA, Locale.US));
     }
 
     @Override
@@ -410,27 +512,42 @@ public class HttpServletRequestImpl implements HttpServletRequest {
 
     @Override
     public RequestDispatcher getRequestDispatcher(String s) {
-        return null;
+        throw new UnsupportedOperationException("不支持getRequestDispatcher");
     }
 
+    /**
+     * 获取远程端口
+     */
     @Override
     public int getRemotePort() {
-        return 0;
+        InetSocketAddress address = this.exchangeRequest.getRemoteAddress();
+        return address.getPort();
     }
 
+    /**
+     * 获取本地名称
+     */
     @Override
     public String getLocalName() {
-        return null;
+        return this.getLocalAddr();
     }
 
+    /**
+     * 获取本地地址
+     */
     @Override
     public String getLocalAddr() {
-        return null;
+        InetSocketAddress address = this.exchangeRequest.getLocalAddress();
+        return address.getHostString();
     }
 
+    /**
+     * 获取本地端口
+     */
     @Override
     public int getLocalPort() {
-        return 0;
+        InetSocketAddress address = this.exchangeRequest.getLocalAddress();
+        return address.getPort();
     }
 
     @Override
@@ -440,17 +557,17 @@ public class HttpServletRequestImpl implements HttpServletRequest {
 
     @Override
     public AsyncContext startAsync() throws IllegalStateException {
-        return null;
+        throw new IllegalStateException("不支持异步请求");
     }
 
     @Override
     public AsyncContext startAsync(ServletRequest servletRequest, ServletResponse servletResponse) throws IllegalStateException {
-        return null;
+        throw new IllegalStateException("不支持异步请求");
     }
 
     @Override
     public boolean isAsyncStarted() {
-        return false;
+        throw new IllegalStateException("不支持异步请求");
     }
 
     @Override
@@ -460,26 +577,32 @@ public class HttpServletRequestImpl implements HttpServletRequest {
 
     @Override
     public AsyncContext getAsyncContext() {
-        return null;
+        throw new IllegalStateException("不支持异步请求");
     }
 
     @Override
     public DispatcherType getDispatcherType() {
-        return null;
+        return DispatcherType.REQUEST;
     }
 
+    /**
+     * 获取请求ID
+     */
     @Override
     public String getRequestId() {
-        return null;
+        if (this.requestId == null) {
+            this.requestId = UUID.randomUUID().toString();
+        }
+        return this.requestId;
     }
 
     @Override
     public String getProtocolRequestId() {
-        return null;
+        return "";
     }
 
     @Override
     public ServletConnection getServletConnection() {
-        return null;
+        throw new UnsupportedOperationException("不支持获取ServletConnection");
     }
 }

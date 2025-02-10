@@ -4,6 +4,7 @@ import com.hdh.engine.HttpServletRequestImpl;
 import com.hdh.engine.HttpServletResponseImpl;
 import com.hdh.engine.ServletContextImpl;
 import com.hdh.engine.filter.LogFilter;
+import com.hdh.engine.listener.*;
 import com.hdh.engine.servlet.IndexServlet;
 import com.hdh.engine.servlet.LoginServlet;
 import com.hdh.engine.servlet.LogoutServlet;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.EventListener;
 import java.util.List;
 
 public class HttpConnector implements HttpHandler, AutoCloseable{
@@ -34,6 +36,14 @@ public class HttpConnector implements HttpHandler, AutoCloseable{
         this.servletContext.initServlets(List.of(IndexServlet.class, LoginServlet.class, LogoutServlet.class));
         // 3. 初始化Filter
         this.servletContext.initFilters(List.of(LogFilter.class));
+        // 4. 注册Listener
+        List<Class<? extends EventListener>> listeners = List.of(
+                HelloHttpSessionAttributeListener.class, HelloHttpSessionListener.class,
+                HelloServletContextAttributeListener.class, HelloServletContextListener.class,
+                HelloServletRequestAttributeListener.class, HelloServletRequestListener.class);
+        for (Class<? extends EventListener> listener : listeners) {
+            this.servletContext.addListener(listener);
+        }
 
         this.host = host;
         this.port = port;

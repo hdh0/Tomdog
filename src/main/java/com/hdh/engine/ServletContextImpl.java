@@ -2,13 +2,13 @@ package com.hdh.engine;
 
 import com.hdh.engine.mapping.FilterMapping;
 import com.hdh.engine.mapping.ServletMapping;
+import com.hdh.engine.support.Attributes;
 import com.hdh.engine.utils.AnnoUtils;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.descriptor.JspConfigDescriptor;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +23,7 @@ import java.util.*;
 public class ServletContextImpl implements ServletContext {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
+    private Attributes attributes = new Attributes(true); // ServletContext属性
 
     final SessionManager sessionManager = new SessionManager(this, 600); // 会话管理器 10分钟失效
 
@@ -34,6 +35,14 @@ public class ServletContextImpl implements ServletContext {
 
     private List<ServletMapping> servletMappings = new ArrayList<>();
     private List<FilterMapping> filterMappings = new ArrayList<>();
+
+    // Listener
+    private List<ServletContextListener> servletContextListeners = null; // 监听ServletContext创建和销毁
+    private List<ServletContextAttributeListener> servletContextAttributeListeners = null; // 监听ServletContext属性变化
+    private List<ServletRequestListener> servletRequestListeners = null; // 监听ServletRequest创建和销毁
+    private List<ServletRequestAttributeListener> servletRequestAttributeListeners = null; // 监听ServletRequest属性变化
+    private List<HttpSessionListener> httpSessionListeners = null; // 监听HttpSession创建和销毁
+    private List<HttpSessionAttributeListener> httpSessionAttributeListeners = null; // 监听HttpSession属性变化
 
     /**
      * 将请求url映射到对应的Servlet进行处理
@@ -67,9 +76,12 @@ public class ServletContextImpl implements ServletContext {
         FilterChain chain = new FilterChainImpl(filters, servlet);
 
         try {
+            this.invokeServletRequestInitialized(request);
             chain.doFilter(request, response);
         }catch (Exception e){
             logger.error("处理请求失败", e);
+        }finally {
+            this.invokeServletRequestDestroyed(request);
         }
     }
 
@@ -247,24 +259,54 @@ public class ServletContextImpl implements ServletContext {
         return false;
     }
 
+    /**
+     * 获取属性值
+     * @param s 属性名
+     * @return 属性值
+     */
     @Override
     public Object getAttribute(String s) {
-        return null;
+        return this.attributes.getAttribute(s);
     }
 
+    /**
+     * 获取属性名列表
+     * @return 属性名列表
+     */
     @Override
     public Enumeration<String> getAttributeNames() {
-        return null;
+        return this.attributes.getAttributeNames();
     }
 
+    /**
+     * 设置属性
+     * @param name 属性名
+     * @param value 属性值
+     */
     @Override
-    public void setAttribute(String s, Object o) {
-
+    public void setAttribute(String name, Object value) {
+        if(value == null){
+            removeAttribute(name);
+        }else {
+            Object old = this.attributes.setAttribute(name, value);
+            if(old == null) {
+                // 当属性不存在时, 触发 ServletContextAttributeAdded 属性添加事件
+                this.invokeServletContextAttributeAdded(name, value);
+            }else {
+                // 当属性存在时, 触发 ServletContextAttributeReplaced 属性替换事件
+                this.invokeServletContextAttributeReplaced(name, value);
+            }
+        }
+        this.attributes.setAttribute(name, value);
     }
 
+    /**
+     * 移除属性
+     * @param s 属性名
+     */
     @Override
     public void removeAttribute(String s) {
-
+        this.attributes.removeAttribute(s);
     }
 
     @Override
@@ -272,6 +314,12 @@ public class ServletContextImpl implements ServletContext {
         return null;
     }
 
+    /**
+     * 动态添加Servlet
+     * @param name Servlet名称
+     * @param className Servlet类名
+     * @return ServletRegistration.Dynamic
+     */
     @Override
     public ServletRegistration.Dynamic addServlet(String name, String className) {
         if (className == null || className.isEmpty()){
@@ -316,30 +364,6 @@ public class ServletContextImpl implements ServletContext {
             throw new RuntimeException(e);
         }
         return addServlet(name, servlet);
-    }
-
-    /**
-     * 创建类实例
-     * @param className 类名
-     */
-    @SuppressWarnings("unchecked")
-    private <T> T createInstance(String className) throws ServletException {
-        Class<T> clazz;
-        try {
-            clazz = (Class<T>) Class.forName(className);
-        } catch (ClassNotFoundException e) {
-            throw new IllegalArgumentException("Class not found.", e);
-        }
-        return createInstance(clazz);
-    }
-
-    private <T> T createInstance(Class<T> clazz) throws ServletException {
-        try {
-            Constructor<T> constructor = clazz.getConstructor();
-            return constructor.newInstance();
-        } catch (ReflectiveOperationException e) {
-            throw new ServletException("无法实例化类: " + clazz.getName(), e);
-        }
     }
 
     @Override
@@ -440,19 +464,209 @@ public class ServletContextImpl implements ServletContext {
         return null;
     }
 
+    /**
+     * 添加Listener, 根据类名
+     * @param className 类名
+     */
     @Override
-    public void addListener(String s) {
-
+    public void addListener(String className) {
+        EventListener listener = null;
+        try {
+            // 根据类名加载Listener类, 并创建Listener实例
+            Class<EventListener> clazz = createInstance(className);
+            listener = createInstance(clazz);
+        } catch (ServletException e) {
+            throw new RuntimeException(e);
+        }
+        addListener(listener);
     }
 
+    /**
+     * 添加Listener到对应的Listener容器中
+     * @param t Listener
+     */
     @Override
     public <T extends EventListener> void addListener(T t) {
-
+        if(t instanceof ServletContextListener listener){
+            if (this.servletContextListeners == null){
+                this.servletContextListeners = new ArrayList<>();
+            }
+            this.servletContextListeners.add(listener);
+        }else if(t instanceof ServletContextAttributeListener listener){
+            if (this.servletContextAttributeListeners == null){
+                this.servletContextAttributeListeners = new ArrayList<>();
+            }
+            this.servletContextAttributeListeners.add(listener);
+        }else if(t instanceof ServletRequestListener listener){
+            if (this.servletRequestListeners == null){
+                this.servletRequestListeners = new ArrayList<>();
+            }
+            this.servletRequestListeners.add(listener);
+        }else if(t instanceof ServletRequestAttributeListener listener){
+            if (this.servletRequestAttributeListeners == null){
+                this.servletRequestAttributeListeners = new ArrayList<>();
+            }
+            this.servletRequestAttributeListeners.add(listener);
+        }else if(t instanceof HttpSessionListener listener){
+            if (this.httpSessionListeners == null){
+                this.httpSessionListeners = new ArrayList<>();
+            }
+            this.httpSessionListeners.add(listener);
+        }else if(t instanceof HttpSessionAttributeListener listener){
+            if (this.httpSessionAttributeListeners == null){
+                this.httpSessionAttributeListeners = new ArrayList<>();
+            }
+            this.httpSessionAttributeListeners.add(listener);
+        }
     }
 
+    /**
+     * 添加Listener, 根据类
+     * @param aClass 类
+     */
     @Override
     public void addListener(Class<? extends EventListener> aClass) {
+        EventListener listener = null;
+        try {
+            listener = createInstance(aClass);
+        } catch (ServletException e) {
+            throw new RuntimeException(e);
+        }
+        addListener(listener);
+    }
 
+    // ================== 调用 Listener ==================
+
+    void invokeServletContextAttributeAdded(String name, Object value) {
+        logger.info("invoke ServletContextAttributeAdded: {} = {}", name, value);
+        if (this.servletContextAttributeListeners != null) {
+            // 创建 Event 事件
+            var event = new ServletContextAttributeEvent(this, name, value);
+            for (var listener : this.servletContextAttributeListeners) {
+                // 调用 Listener 实现的方法
+                listener.attributeAdded(event);
+            }
+        }
+    }
+
+    void invokeServletContextAttributeRemoved(String name, Object value) {
+        logger.info("invoke ServletContextAttributeRemoved: {} = {}", name, value);
+        if (this.servletContextAttributeListeners != null) {
+            var event = new ServletContextAttributeEvent(this, name, value);
+            for (var listener : this.servletContextAttributeListeners) {
+                listener.attributeRemoved(event);
+            }
+        }
+    }
+
+    void invokeServletContextAttributeReplaced(String name, Object value) {
+        logger.info("invoke ServletContextAttributeReplaced: {} = {}", name, value);
+        if (this.servletContextAttributeListeners != null) {
+            var event = new ServletContextAttributeEvent(this, name, value);
+            for (var listener : this.servletContextAttributeListeners) {
+                listener.attributeReplaced(event);
+            }
+        }
+    }
+
+    void invokeServletRequestAttributeAdded(HttpServletRequest request, String name, Object value) {
+        logger.info("invoke ServletRequestAttributeAdded: {} = {}, request = {}", name, value, request);
+        if (this.servletRequestAttributeListeners != null) {
+            var event = new ServletRequestAttributeEvent(this, request, name, value);
+            for (var listener : this.servletRequestAttributeListeners) {
+                listener.attributeAdded(event);
+            }
+        }
+    }
+
+    void invokeServletRequestAttributeRemoved(HttpServletRequest request, String name, Object value) {
+        logger.info("invoke ServletRequestAttributeRemoved: {} = {}, request = {}", name, value, request);
+        if (this.servletRequestAttributeListeners != null) {
+            var event = new ServletRequestAttributeEvent(this, request, name, value);
+            for (var listener : this.servletRequestAttributeListeners) {
+                listener.attributeRemoved(event);
+            }
+        }
+    }
+
+    void invokeServletRequestAttributeReplaced(HttpServletRequest request, String name, Object value) {
+        logger.info("invoke ServletRequestAttributeReplaced: {} = {}, request = {}", name, value, request);
+        if (this.servletRequestAttributeListeners != null) {
+            var event = new ServletRequestAttributeEvent(this, request, name, value);
+            for (var listener : this.servletRequestAttributeListeners) {
+                listener.attributeReplaced(event);
+            }
+        }
+    }
+
+    void invokeHttpSessionAttributeAdded(HttpSession session, String name, Object value) {
+        logger.info("invoke HttpSessionAttributeAdded: {} = {}, session = {}", name, value, session);
+        if (this.httpSessionAttributeListeners != null) {
+            var event = new HttpSessionBindingEvent(session, name, value);
+            for (var listener : this.httpSessionAttributeListeners) {
+                listener.attributeAdded(event);
+            }
+        }
+    }
+
+    void invokeHttpSessionAttributeRemoved(HttpSession session, String name, Object value) {
+        logger.info("invoke ServletContextAttributeRemoved: {} = {}, session = {}", name, value, session);
+        if (this.httpSessionAttributeListeners != null) {
+            var event = new HttpSessionBindingEvent(session, name, value);
+            for (var listener : this.httpSessionAttributeListeners) {
+                listener.attributeRemoved(event);
+            }
+        }
+    }
+
+    void invokeHttpSessionAttributeReplaced(HttpSession session, String name, Object value) {
+        logger.info("invoke ServletContextAttributeReplaced: {} = {}, session = {}", name, value, session);
+        if (this.httpSessionAttributeListeners != null) {
+            var event = new HttpSessionBindingEvent(session, name, value);
+            for (var listener : this.httpSessionAttributeListeners) {
+                listener.attributeReplaced(event);
+            }
+        }
+    }
+
+    void invokeServletRequestInitialized(HttpServletRequest request) {
+        logger.info("invoke ServletRequestInitialized: request = {}", request);
+        if (this.servletRequestListeners != null) {
+            var event = new ServletRequestEvent(this, request);
+            for (var listener : this.servletRequestListeners) {
+                listener.requestInitialized(event);
+            }
+        }
+    }
+
+    void invokeServletRequestDestroyed(HttpServletRequest request) {
+        logger.info("invoke ServletRequestDestroyed: request = {}", request);
+        if (this.servletRequestListeners != null) {
+            var event = new ServletRequestEvent(this, request);
+            for (var listener : this.servletRequestListeners) {
+                listener.requestDestroyed(event);
+            }
+        }
+    }
+
+    void invokeHttpSessionCreated(HttpSession session) {
+        logger.info("invoke HttpSessionCreated: session = {}", session);
+        if (this.httpSessionListeners != null) {
+            var event = new HttpSessionEvent(session);
+            for (var listener : this.httpSessionListeners) {
+                listener.sessionCreated(event);
+            }
+        }
+    }
+
+    void invokeHttpSessionDestroyed(HttpSession session) {
+        logger.info("invoke HttpSessionDestroyed: session = {}", session);
+        if (this.httpSessionListeners != null) {
+            var event = new HttpSessionEvent(session);
+            for (var listener : this.httpSessionListeners) {
+                listener.sessionDestroyed(event);
+            }
+        }
     }
 
     @Override
@@ -507,6 +721,29 @@ public class ServletContextImpl implements ServletContext {
 
     @Override
     public void setResponseCharacterEncoding(String s) {
+    }
 
+    /**
+     * 创建类实例
+     * @param className 类名
+     */
+    @SuppressWarnings("unchecked")
+    private <T> T createInstance(String className) throws ServletException {
+        Class<T> clazz;
+        try {
+            clazz = (Class<T>) Class.forName(className);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalArgumentException("Class not found.", e);
+        }
+        return createInstance(clazz);
+    }
+
+    private <T> T createInstance(Class<T> clazz) throws ServletException {
+        try {
+            Constructor<T> constructor = clazz.getConstructor();
+            return constructor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new ServletException("无法实例化类: " + clazz.getName(), e);
+        }
     }
 }

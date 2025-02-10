@@ -31,6 +31,8 @@ public class SessionManager implements Runnable{
             // 不存在时, 创建新的Session, 并放入sessions
             session = new HttpSessionImpl(this.servletContext, sessionId, this.inactiveInterval);
             sessions.put(sessionId, session);
+            // 触发session创建事件
+            this.servletContext.invokeHttpSessionCreated(session);
         }else {
             session.lastAccessedTime = System.currentTimeMillis();
         }
@@ -39,6 +41,8 @@ public class SessionManager implements Runnable{
 
     public void remove(HttpSession session){
         this.sessions.remove(session.getId());
+        // 触发session销毁事件
+        this.servletContext.invokeHttpSessionDestroyed(session);
     }
 
     @Override
